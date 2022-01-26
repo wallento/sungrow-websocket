@@ -1,0 +1,4 @@
+sungrow_websocket.egg-info/
+__pycache__
+
+sungrow_websocket/version.py
