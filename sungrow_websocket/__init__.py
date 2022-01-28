@@ -119,7 +119,7 @@ class SungrowWebsocket:
                 data[id] = InverterItem(
                     name=name,
                     desc=self.strings.get(name, name),
-                    value=item["data_value"],
+                    value=self.strings.get(item["data_value"], item["data_value"]),
                     unit=item["data_unit"],
                 )
 
