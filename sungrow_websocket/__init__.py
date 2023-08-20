@@ -12,7 +12,7 @@ from terminaltables import AsciiTable  # type: ignore
 from collections import namedtuple
 from .version import version
 
-InverterItem = namedtuple("InverterItem", ["name", "desc", "value", "unit"])
+InverterItem = namedtuple("InverterItem", ["device", "name", "desc", "value", "unit"])
 
 
 # Typing of the json we get from the inverter
@@ -94,104 +94,107 @@ class SungrowWebsocket:
             d = json.loads(await websocket.recv())
             if d["result_code"] != 1 or d["result_msg"] != "success":
                 return data
-            dev_id: str = str(d["result_data"]["list"][0]["dev_id"])
-
-            await websocket.send(
-                json.dumps(
-                    {
-                        "lang": self.locale,
-                        "token": token,
-                        "service": "real",
-                        "dev_id": dev_id,
-                    }
+            
+            for device in d["result_data"]["list"]:
+                dev_id = str(device["dev_id"])
+                dev_name = device["dev_name"]
+                suffix = ""
+                if device["dev_id"] > 1:
+                  suffix = dev_id
+              
+                await websocket.send(
+                    json.dumps(
+                        {
+                            "lang": self.locale,
+                            "token": token,
+                            "service": "real",
+                            "dev_id": dev_id,
+                        }
+                    )
                 )
-            )
-            d = json.loads(await websocket.recv())
-            if d["result_code"] != 1 or d["result_msg"] != "success":
-                return data
+                d = json.loads(await websocket.recv())
+                if d.get('result_code') == 1 or d.get('result_arg') == "success":
+                    for item in d["result_data"]["list"]:
+                        name = item["data_name"]
+                        if name.startswith("I18N_COMMON_"):
+                            id: str = name.removeprefix("I18N_COMMON_").lower() + suffix
+                        else:
+                            id = name.removeprefix("I18N_").lower() + suffix
+                        data[id] = InverterItem(
+                            device=dev_name,
+                            name=name,
+                            desc=self.strings.get(name, name),
+                            value=self.strings.get(item["data_value"], item["data_value"]),
+                            unit=item["data_unit"],
+                        )
 
-            for item in d["result_data"]["list"]:
-                name = item["data_name"]
-                if name.startswith("I18N_COMMON_"):
-                    id: str = name.removeprefix("I18N_COMMON_").lower()
-                else:
-                    id = name.removeprefix("I18N_").lower()
-                data[id] = InverterItem(
-                    name=name,
-                    desc=self.strings.get(name, name),
-                    value=self.strings.get(item["data_value"], item["data_value"]),
-                    unit=item["data_unit"],
+                await websocket.send(
+                    json.dumps(
+                        {
+                            "lang": self.locale,
+                            "token": token,
+                            "service": "real_battery",
+                            "dev_id": dev_id,
+                        }
+                    )
                 )
+                d = json.loads(await websocket.recv())
+                if d.get('result_code') == 1 or d.get('result_arg') == "success":
+                    for item in d["result_data"]["list"]:
+                        name = item["data_name"]
+                        if name.startswith("I18N_COMMON_"):
+                            id: str = name.removeprefix("I18N_COMMON_").lower() + suffix
+                        else:
+                            id = name.removeprefix("I18N_").lower() + suffix
+                        data[id] = InverterItem(
+                            device=dev_name,
+                            name=name,
+                            desc=self.strings.get(name, name),
+                            value=item["data_value"],
+                            unit=item["data_unit"],
+                        )
 
-            await websocket.send(
-                json.dumps(
-                    {
-                        "lang": self.locale,
-                        "token": token,
-                        "service": "real_battery",
-                        "dev_id": dev_id,
-                    }
+                await websocket.send(
+                    json.dumps(
+                        {
+                            "lang": self.locale,
+                            "token": token,
+                            "service": "direct",
+                            "dev_id": dev_id,
+                        }
+                    )
                 )
-            )
-            d = json.loads(await websocket.recv())
-            if d["result_code"] != 1 or d["result_msg"] != "success":
-                return data
+                d = json.loads(await websocket.recv())
+                if d.get('result_code') == 1 or d.get('result_arg') == "success":
+                    for item in d["result_data"]["list"]:
+                        if item["name"].startswith("I18N_COMMON_"):
+                            item_name = self.strings.get(item["name"][:-3]).format(item["name"][-1])
+                        else:
+                            item_name = item["name"]
 
-            for item in d["result_data"]["list"]:
-                name = item["data_name"]
-                if name.startswith("I18N_COMMON_"):
-                    id: str = name.removeprefix("I18N_COMMON_").lower()
-                else:
-                    id = name.removeprefix("I18N_").lower()
-                data[id] = InverterItem(
-                    name=name,
-                    desc=self.strings.get(name, name),
-                    value=item["data_value"],
-                    unit=item["data_unit"],
-                )
+                        name = item_name + " Voltage"
 
-            await websocket.send(
-                json.dumps(
-                    {
-                        "lang": self.locale,
-                        "token": token,
-                        "service": "direct",
-                        "dev_id": dev_id,
-                    }
-                )
-            )
-            d = json.loads(await websocket.recv())
-            if d["result_code"] != 1 or d["result_msg"] != "success":
-                return data
+                        id = name.lower().replace(" ", "_") + suffix
 
-            from pprint import pprint
-            for item in d["result_data"]["list"]:
-                if item["name"].startswith("I18N_COMMON_"):
-                    item_name = self.strings.get(item["name"][:-3]).format(item["name"][-1])
-                else:
-                    item_name = item["name"]
+                        data[id] = InverterItem(
+                            device=dev_name,
+                            name=item["name"],
+                            desc=name,
+                            value=item["voltage"],
+                            unit=item["voltage_unit"],
+                        )
 
-                name = item_name + " Voltage"
+                        name = item_name + " Current"
 
-                id = name.lower().replace(" ", "_")
+                        id = name.lower().replace(" ", "_") + suffix
 
-                data[id] = InverterItem(
-                    name=item["name"],
-                    desc=name,
-                    value=item["voltage"],
-                    unit=item["voltage_unit"],
-                )
-
-                name = item_name + " Current"
-
-                id = name.lower().replace(" ", "_")
-
-                data[id] = InverterItem(
-                    name=item["name"],
-                    desc=name,
-                    value=item["current"],
-                    unit=item["current_unit"],
-                )
+                        data[id] = InverterItem(
+                            device=dev_name,
+                            name=item["name"],
+                            desc=name,
+                            value=item["current"],
+                            unit=item["current_unit"],
+                        )
         return data
 
     def get_data(self) -> dict[str, InverterItem]:
@@ -217,7 +220,7 @@ def main():
             for id, item in data.items()
         ]
     else:
-        table = [["Item", "Value"]] + [
-            [item.desc, f"{item.value} {item.unit}"] for item in data.values()
+        table = [["Device", "Item", "Value"]] + [
+            [item.device, item.desc, f"{item.value} {item.unit}"] for item in data.values()
         ]
     print(AsciiTable(table).table)
